@@ -2,6 +2,11 @@ import pyglet
 from pyglet.window import key, mouse
 from pyglet import shapes
 
+import numpy as np
+import os
+import pickle
+import atexit
+
 class Brick:
     def __init__(self, x, y, width, height, color=(100, 200, 255)):
         self.x = x
@@ -52,6 +57,12 @@ solobasicButton = shapes.Rectangle(220, 275, 200, 50, color=(100, 100, 255))
 solobasicButtonText = pyglet.text.Label("Basic Mode", x=window.width//2, y=300, anchor_x='center', anchor_y='center')
 soloadvancedButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 255))
 soloadvancedButtonText = pyglet.text.Label("Advanced Mode", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
+watchButton = shapes.Rectangle(220, 150, 200, 50, color=(100, 100, 255))
+watchButtonText = pyglet.text.Label("Watch Mode", x=window.width//2, y=175, anchor_x='center', anchor_y='center')
+watchbasicButton = shapes.Rectangle(220, 275, 200, 50, color=(100, 100, 255))
+watchbasicButtonText = pyglet.text.Label("Watch Basic", x=window.width//2, y=300, anchor_x='center', anchor_y='center')
+watchadvancedButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 255))
+watchadvancedButtonText = pyglet.text.Label("Watch Advanced", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
 
 timerLabel = pyglet.text.Label("Time elapsed: 0.00", x=10, y=450)
 livesLabel = pyglet.text.Label("Lives: 3", x=210, y=450)
@@ -68,6 +79,54 @@ gamewonTimeLabel = pyglet.text.Label("", font_size=18, x=window.width//2, y=260,
 gameoverLabel = pyglet.text.Label("GAME OVER", font_size=32, x=window.width//2, y=300, anchor_x='center')
 restartButton = shapes.Rectangle(220, 200, 200, 50, color=(255, 100, 100))
 restartButtonText = pyglet.text.Label("Return to Menu", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
+
+class NeuralNetwork:
+    def __init__(self, layer_sizes, save_file):
+        self.layer_sizes = layer_sizes
+        self.save_file = save_file
+        self.weights = []
+        self.biases = []
+
+        if os.path.exists(self.save_file):
+            self.load()
+        else:
+            self.init_random_weights()
+
+    def init_random_weights(self):
+        self.weights = []
+        self.biases = []
+        for i in range(len(self.layer_sizes) - 1):
+            fan_in = self.layer_sizes[i]
+            fan_out = self.layer_sizes[i+1]
+            std = np.sqrt(2.0 / fan_in)
+            W = np.random.randn(fan_out, fan_in) * std
+            b = np.zeros((fan_out, 1))
+            self.weights.append(W)
+            self.biases.append(b)
+
+    def forward(self, x):
+        a = x
+        for i in range(len(self.weights) - 1):
+            z = self.weights[i] @ a + self.biases[i]
+            a = np.maximum(z, 0.0)
+        z = self.weights[-1] @ a + self.biases[-1]
+        return z
+
+    def save(self):
+        with open(self.save_file, "wb") as f:
+            pickle.dump({"weights": self.weights, "biases": self.biases}, f)
+
+    def load(self):
+        with open(self.save_file, "rb") as f:
+            data = pickle.load(f)
+            self.weights = data["weights"]
+            self.biases = data["biases"]
+
+nn_basic = NeuralNetwork([59, 32, 16, 3], save_file="nn_basic.pkl")
+nn_advanced = NeuralNetwork([59, 50, 30, 3], save_file="nn_advanced.pkl")
+
+atexit.register(nn_basic.save)
+atexit.register(nn_advanced.save)
 
 def resetGame():
     global ball, paddle, elapsedTime, state, lives, gameStarted, score, stage
@@ -97,6 +156,44 @@ def createBricks():
             x = startX + col*brickWidth
             y = window.height-topOffset-row*brickHeight
             bricks.append(Brick(x, y, brickWidth, brickHeight))
+
+def get_nn_input_basic():
+    brick_bits = [1 if brick.alive else 0 for brick in bricks]
+
+    nx = ball.x / window.width
+    ny = ball.y / window.height
+
+    scale = 300.0
+    ndx = max(-1.0, min(1.0, ball.dx / scale))
+    ndy = max(-1.0, min(1.0, ball.dy / scale))
+
+    vec = brick_bits + [nx, ny, ndx, ndy]
+    return np.array(vec, dtype=np.float32).reshape(-1, 1)
+
+def get_nn_input_advanced():
+    brick_bits = [1 if brick.alive else 0 for brick in bricks]
+
+    nx = ball.x / window.width
+    ny = ball.y / window.height
+
+    speed_scale = 300.0
+    ndx = np.tanh(ball.dx / speed_scale)
+    ndy = np.tanh(ball.dy / speed_scale)
+
+    vec = brick_bits + [nx, ny, float(ndx), float(ndy)]
+    return np.array(vec, dtype=np.float32).reshape(-1, 1)
+
+def ai_move(nn, input_fn, dt):
+    nn_input = input_fn()
+    scores = nn.forward(nn_input)
+    action = int(np.argmax(scores))
+
+    if action == 0:
+        paddle.x -= 300 * dt
+    elif action == 2:
+        paddle.x += 300 * dt
+
+    paddle.x = max(0, min(window.width - paddle.width, paddle.x))
 
 def update(dt):
     global elapsedTime, state, lives, gameStarted, score, stage
@@ -136,8 +233,9 @@ def update(dt):
         if ball.y > window.height - ball.height:
             ball.dy *= -1
 
-        if (paddle.y <= ball.y <= paddle.y+paddle.height)and(paddle.x-ball.width <= ball.x <= paddle.x+paddle.width-ball.width):
-            ball.dy *= -1
+        if (paddle.y <= ball.y <= paddle.y+paddle.height) and \
+            (paddle.x-ball.width <= ball.x <= paddle.x+paddle.width+ball.width):
+            ball.dy = abs(ball.dy)
 
         if ball.y < 0:
             lives -=1
@@ -198,13 +296,13 @@ def update(dt):
         if ball.y > window.height - ball.height:
             ball.dy *= -1
 
-        if ball.y+ball.dy/60 <= paddle.y+paddle.height:
-            if (paddle.x<=ball.x+ball.width/2<=paddle.x+paddle.width/4)or(paddle.x+3*(paddle.width/4)<=ball.x+ball.width/2<=paddle.x+paddle.width):
-                ball.dy *= -1
-                ball.dx *= 1.25
-            elif paddle.x+(paddle.width/2)<=ball.x+ball.width/2<=paddle.x+3*(paddle.width/4):
-                ball.dy *= -1
-                ball.dx *= 0.75
+        if (ball.y+ball.dy/60 <= paddle.y+paddle.height)and(paddle.x-ball.width<=ball.x<=paddle.x+paddle.width):
+            ball.dy = abs(ball.dy)
+            if (paddle.x-ball.width/2<=ball.x+ball.width/2<=paddle.x+paddle.width/4) or \
+                (paddle.x+3*(paddle.width/4)<=ball.x+ball.width/2<=paddle.x+paddle.width+ball.width/2):
+                ball.dx *= 1.2
+            elif paddle.x+(paddle.width/2)<ball.x+ball.width/2<paddle.x+3*(paddle.width/4):
+                ball.dx *= 0.8
 
         if ball.y < 0:
             lives -=1
@@ -228,6 +326,127 @@ def update(dt):
             else:
                 state = "gamewon"
                 gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+    
+    elif state == "watchbasic":
+        timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+        livesLabel.text = f"Lives: {lives}"
+        scoreLabel.text = f"Score: {score}"
+        stageLabel.text = f"Stage: {stage}"
+
+        if not gameStarted:
+            ball.dx, ball.dy = 200, 200
+            gameStarted = True
+
+        elapsedTime += dt
+
+        ai_move(nn_basic, get_nn_input_basic, dt)
+
+        ball.x += ball.dx * dt
+        ball.y += ball.dy * dt
+
+        for brick in bricks:
+            if brick.checkCollision(ball):
+                score += 1
+                scoreLabel.text = f"Score: {score}"
+                break
+
+        if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
+            ball.dx *= -1
+        if ball.y > window.height - ball.height:
+            ball.dy *= -1
+
+        if (paddle.y <= ball.y <= paddle.y + paddle.height) and \
+           (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width + ball.width):
+            ball.dy = abs(ball.dy)
+
+        if ball.y < 0:
+            lives -= 1
+            gameStarted = False
+            ball.x = paddle.x + paddle.width//2 - ball.width//2
+            ball.y = paddle.y + paddle.height + 1
+            ball.dx, ball.dy = 0, 0
+
+        if lives == 0:
+            state = "gameover"
+            lives = 5
+            score = 0
+            stage = 1
+
+        if all(not brick.alive for brick in bricks):
+            if stage < maxStage:
+                stage += 1
+                stageLabel.text = f"Stage: {stage}"
+                gameStarted = False
+                ball.dx, ball.dy = 0, 0
+                ball.x = paddle.x + paddle.width//2 - ball.width//2
+                ball.y = 1
+                createBricks()
+            else:
+                state = "gamewon"
+                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+
+    elif state == "watchadvanced":
+        timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+        livesLabel.text = f"Lives: {lives}"
+        scoreLabel.text = f"Score: {score}"
+        stageLabel.text = f"Stage: {stage}"
+
+        if not gameStarted:
+            ball.dx, ball.dy = 200, 200
+            gameStarted = True
+
+        elapsedTime += dt
+
+        ai_move(nn_advanced, get_nn_input_advanced, dt)
+
+        ball.x += ball.dx * dt
+        ball.y += ball.dy * dt
+
+        for brick in bricks:
+            if brick.checkCollision(ball):
+                score += 1
+                scoreLabel.text = f"Score: {score}"
+                break
+
+        if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
+            ball.dx *= -1
+        if ball.y > window.height - ball.height:
+            ball.dy *= -1
+
+        if (ball.y + ball.dy/60 <= paddle.y + paddle.height) and \
+           (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width):
+            ball.dy = abs(ball.dy)
+            if (paddle.x - ball.width/2 <= ball.x + ball.width/2 <= paddle.x + paddle.width/4) or \
+               (paddle.x + 3*(paddle.width/4) <= ball.x + ball.width/2 <= paddle.x + paddle.width + ball.width/2):
+                ball.dx *= 1.2
+            elif paddle.x + (paddle.width/2) < ball.x + ball.width/2 < paddle.x + 3*(paddle.width/4):
+                ball.dx *= 0.8
+
+        if ball.y < 0:
+            lives -= 1
+            gameStarted = False
+            ball.x = paddle.x + paddle.width//2 - ball.width//2
+            ball.y = paddle.y + paddle.height + 1
+            ball.dx, ball.dy = 0, 0
+
+        if lives == 0:
+            state = "gameover"
+            lives = 5
+            score = 0
+            stage = 1
+
+        if all(not brick.alive for brick in bricks):
+            if stage < maxStage:
+                stage += 1
+                stageLabel.text = f"Stage: {stage}"
+                gameStarted = False
+                ball.dx, ball.dy = 0, 0
+                ball.x = paddle.x + paddle.width//2 - ball.width//2
+                ball.y = 1
+                createBricks()
+            else:
+                state = "gamewon"
+                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
 
 @window.event
 def on_draw():
@@ -236,11 +455,18 @@ def on_draw():
         titleLabel.draw()
         soloButton.draw()
         soloButtonText.draw()
+        watchButton.draw()
+        watchButtonText.draw()
     elif state == "solomodemenu":
         solobasicButton.draw()
         solobasicButtonText.draw()
         soloadvancedButton.draw()
         soloadvancedButtonText.draw()
+    elif state == "watchmodemenu":
+        watchbasicButton.draw()
+        watchbasicButtonText.draw()
+        watchadvancedButton.draw()
+        watchadvancedButtonText.draw()
     elif state == "solobasic":
         batch.draw()
         timerLabel.draw()
@@ -248,6 +474,18 @@ def on_draw():
         scoreLabel.draw()
         stageLabel.draw()
     elif state == "soloadvanced":
+        batch.draw()
+        timerLabel.draw()
+        livesLabel.draw()
+        scoreLabel.draw()
+        stageLabel.draw()
+    elif state == "watchbasic":
+        batch.draw()
+        timerLabel.draw()
+        livesLabel.draw()
+        scoreLabel.draw()
+        stageLabel.draw()
+    elif state == "watchadvanced":
         batch.draw()
         timerLabel.draw()
         livesLabel.draw()
@@ -270,6 +508,8 @@ def on_mouse_press(x, y, button, modifiers):
         if state == "menu":
             if 220 <= x <= 420 and 250 <= y <= 300:
                 state = "solomodemenu"
+            elif 220 <= x <= 420 and 150 <= y <= 200:
+                state = "watchmodemenu"
         elif state == "solomodemenu":
             if 220 <= x <= 420 and 275 <= y <= 325:
                 resetGame()
@@ -277,6 +517,13 @@ def on_mouse_press(x, y, button, modifiers):
             elif 220 <= x <= 420 and 200 <= y <= 250:
                 resetGame()
                 state = "soloadvanced"
+        elif state == "watchmodemenu":
+            if 220 <= x <= 420 and 275 <= y <= 325:
+                resetGame()
+                state = "watchbasic"
+            elif 220 <= x <= 420 and 200 <= y <= 250:
+                resetGame()
+                state = "watchadvanced"
         elif state == "gameover":
             if 220 <= x <= 420 and 200 <= y <= 250:
                 state = "menu"
