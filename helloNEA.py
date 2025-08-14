@@ -48,7 +48,6 @@ lives = 5
 gameStarted = False
 score = 0
 stage = 1
-maxStage = 3
 
 titleLabel = pyglet.text.Label("Breakout", font_size=36, x=window.width//2, y=350, anchor_x='center')
 soloButton = shapes.Rectangle(220, 250, 200, 50, color=(100, 100, 255))
@@ -63,41 +62,61 @@ watchbasicButton = shapes.Rectangle(220, 275, 200, 50, color=(100, 100, 255))
 watchbasicButtonText = pyglet.text.Label("Watch Basic", x=window.width//2, y=300, anchor_x='center', anchor_y='center')
 watchadvancedButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 255))
 watchadvancedButtonText = pyglet.text.Label("Watch Advanced", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
+trainingButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 255))
+trainingButtonText = pyglet.text.Label("Training Mode", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
+trainingbasicButton = shapes.Rectangle(220, 275, 200, 50, color=(100, 100, 255))
+trainingbasicButtonText = pyglet.text.Label("Basic Mode", x=window.width//2, y=300, anchor_x='center', anchor_y='center')
+trainingadvancedButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 255))
+trainingadvancedButtonText = pyglet.text.Label("Advanced Mode", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
+scoresButton = shapes.Rectangle(220, 100, 200, 50, color=(100, 100, 255))
+scoresButtonText = pyglet.text.Label("Scores", x=window.width//2, y=125, anchor_x='center', anchor_y='center')
 
 timerLabel = pyglet.text.Label("Time elapsed: 0.00", x=10, y=450)
-livesLabel = pyglet.text.Label("Lives: 3", x=210, y=450)
-scoreLabel = pyglet.text.Label("Score: 0", x=370, y=450)
-stageLabel = pyglet.text.Label("Stage: 1", x=510, y=450)
+livesLabel = pyglet.text.Label("Lives: 3", x=180, y=450)
+scoreLabel = pyglet.text.Label("Score: 0", x=280, y=450)
+stageLabel = pyglet.text.Label("Stage: 1", x=380, y=450)
 batch = pyglet.graphics.Batch()
 paddle = shapes.Rectangle(x=270, y=00, width=60, height=10, color=(255, 255, 255), batch=batch)
 ball = shapes.Rectangle(x=320, y=100, width=10, height=10, color=(255, 0, 0), batch=batch)
 ball.dx = 200
 ball.dy = 200
 bricks = []
-gamewonLabel = pyglet.text.Label("Well Done, You have won Breakout!", font_size=28, x=window.width//2, y=300, anchor_x='center')
-gamewonTimeLabel = pyglet.text.Label("", font_size=18, x=window.width//2, y=260, anchor_x='center')
+
+exitButton = shapes.Rectangle(540, 440, 100, 40, color=(200, 50, 50))
+exitButtonText = pyglet.text.Label("Exit", x=590, y=460, anchor_x='center', anchor_y='center')
 gameoverLabel = pyglet.text.Label("GAME OVER", font_size=32, x=window.width//2, y=300, anchor_x='center')
 restartButton = shapes.Rectangle(220, 200, 200, 50, color=(255, 100, 100))
 restartButtonText = pyglet.text.Label("Return to Menu", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
 
+scoresFile = "scores.pkl"
+scoresData = {"soloBasic": 0, "soloAdvanced": 0, "trainingBasic": 0, "trainingAdvanced": 0, "watchBasic": 0, "watchAdvanced": 0}
+def loadScores():
+    global scoresData
+    if os.path.exists(scoresFile):
+        with open(scoresFile, "rb") as f:
+            scoresData = pickle.load(f)
+def saveScores():
+    with open(scoresFile, "wb") as f:
+        pickle.dump(scoresData, f)
+
 class NeuralNetwork:
-    def __init__(self, layer_sizes, save_file):
-        self.layer_sizes = layer_sizes
-        self.save_file = save_file
+    def __init__(self, layerSizes, saveFile):
+        self.layerSizes = layerSizes
+        self.saveFile = saveFile
         self.weights = []
         self.biases = []
 
-        if os.path.exists(self.save_file):
+        if os.path.exists(self.saveFile):
             self.load()
         else:
-            self.init_random_weights()
+            self.initRandomWeights()
 
-    def init_random_weights(self):
+    def initRandomWeights(self):
         self.weights = []
         self.biases = []
-        for i in range(len(self.layer_sizes) - 1):
-            fan_in = self.layer_sizes[i]
-            fan_out = self.layer_sizes[i+1]
+        for i in range(len(self.layerSizes) - 1):
+            fan_in = self.layerSizes[i]
+            fan_out = self.layerSizes[i+1]
             std = np.sqrt(2.0 / fan_in)
             W = np.random.randn(fan_out, fan_in) * std
             b = np.zeros((fan_out, 1))
@@ -113,17 +132,17 @@ class NeuralNetwork:
         return z
 
     def save(self):
-        with open(self.save_file, "wb") as f:
+        with open(self.saveFile, "wb") as f:
             pickle.dump({"weights": self.weights, "biases": self.biases}, f)
 
     def load(self):
-        with open(self.save_file, "rb") as f:
+        with open(self.saveFile, "rb") as f:
             data = pickle.load(f)
             self.weights = data["weights"]
             self.biases = data["biases"]
 
-nn_basic = NeuralNetwork([59, 32, 16, 3], save_file="nn_basic.pkl")
-nn_advanced = NeuralNetwork([59, 50, 30, 3], save_file="nn_advanced.pkl")
+nn_basic = NeuralNetwork([59, 32, 16, 3], saveFile="nn_basic.pkl")
+nn_advanced = NeuralNetwork([59, 50, 30, 3], saveFile="nn_advanced.pkl")
 
 atexit.register(nn_basic.save)
 atexit.register(nn_advanced.save)
@@ -158,7 +177,7 @@ def createBricks():
             bricks.append(Brick(x, y, brickWidth, brickHeight))
 
 def get_nn_input_basic():
-    brick_bits = [1 if brick.alive else 0 for brick in bricks]
+    brickBits = [1 if brick.alive else 0 for brick in bricks]
 
     nx = ball.x / window.width
     ny = ball.y / window.height
@@ -167,11 +186,11 @@ def get_nn_input_basic():
     ndx = max(-1.0, min(1.0, ball.dx / scale))
     ndy = max(-1.0, min(1.0, ball.dy / scale))
 
-    vec = brick_bits + [nx, ny, ndx, ndy]
+    vec = brickBits + [nx, ny, ndx, ndy]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
 def get_nn_input_advanced():
-    brick_bits = [1 if brick.alive else 0 for brick in bricks]
+    brickBits = [1 if brick.alive else 0 for brick in bricks]
 
     nx = ball.x / window.width
     ny = ball.y / window.height
@@ -180,7 +199,7 @@ def get_nn_input_advanced():
     ndx = np.tanh(ball.dx / speed_scale)
     ndy = np.tanh(ball.dy / speed_scale)
 
-    vec = brick_bits + [nx, ny, float(ndx), float(ndy)]
+    vec = brickBits + [nx, ny, float(ndx), float(ndy)]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
 def ai_move(nn, input_fn, dt):
@@ -248,17 +267,13 @@ def update(dt):
             stage = 1
 
         if all(not brick.alive for brick in bricks):
-            if stage < maxStage:
-                stage += 1
-                stageLabel.text = f"Stage: {stage}"
-                gameStarted = False
-                ball.dx, ball.dy = 0, 0
-                ball.x = paddle.x+paddle.width//2-ball.width//2
-                ball.y = 1
-                createBricks()
-            else:
-                state = "gamewon"
-                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+            stage += 1
+            stageLabel.text = f"Stage: {stage}"
+            gameStarted = False
+            ball.dx, ball.dy = 0, 0
+            ball.x = paddle.x+paddle.width//2-ball.width//2
+            ball.y = 1
+            createBricks()
     
     elif state == "soloadvanced":
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
@@ -315,17 +330,13 @@ def update(dt):
             stage = 1
 
         if all(not brick.alive for brick in bricks):
-            if stage < maxStage:
-                stage += 1
-                stageLabel.text = f"Stage: {stage}"
-                gameStarted = False
-                ball.dx, ball.dy = 0, 0
-                ball.x = paddle.x+paddle.width//2-ball.width//2
-                ball.y = 1
-                createBricks()
-            else:
-                state = "gamewon"
-                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+            stage += 1
+            stageLabel.text = f"Stage: {stage}"
+            gameStarted = False
+            ball.dx, ball.dy = 0, 0
+            ball.x = paddle.x+paddle.width//2-ball.width//2
+            ball.y = 1
+            createBricks()
     
     elif state == "watchbasic":
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
@@ -373,17 +384,13 @@ def update(dt):
             stage = 1
 
         if all(not brick.alive for brick in bricks):
-            if stage < maxStage:
-                stage += 1
-                stageLabel.text = f"Stage: {stage}"
-                gameStarted = False
-                ball.dx, ball.dy = 0, 0
-                ball.x = paddle.x + paddle.width//2 - ball.width//2
-                ball.y = 1
-                createBricks()
-            else:
-                state = "gamewon"
-                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+            stage += 1
+            stageLabel.text = f"Stage: {stage}"
+            gameStarted = False
+            ball.dx, ball.dy = 0, 0
+            ball.x = paddle.x+paddle.width//2-ball.width//2
+            ball.y = 1
+            createBricks()
 
     elif state == "watchadvanced":
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
@@ -436,17 +443,13 @@ def update(dt):
             stage = 1
 
         if all(not brick.alive for brick in bricks):
-            if stage < maxStage:
-                stage += 1
-                stageLabel.text = f"Stage: {stage}"
-                gameStarted = False
-                ball.dx, ball.dy = 0, 0
-                ball.x = paddle.x + paddle.width//2 - ball.width//2
-                ball.y = 1
-                createBricks()
-            else:
-                state = "gamewon"
-                gamewonTimeLabel.text = f"Time elapsed: {elapsedTime:.2f}"
+            stage += 1
+            stageLabel.text = f"Stage: {stage}"
+            gameStarted = False
+            ball.dx, ball.dy = 0, 0
+            ball.x = paddle.x+paddle.width//2-ball.width//2
+            ball.y = 1
+            createBricks()
 
 @window.event
 def on_draw():
@@ -455,8 +458,12 @@ def on_draw():
         titleLabel.draw()
         soloButton.draw()
         soloButtonText.draw()
+        trainingButton.draw()
+        trainingButtonText.draw()
         watchButton.draw()
         watchButtonText.draw()
+        scoresButton.draw()
+        scoresButtonText.draw()
     elif state == "solomodemenu":
         solobasicButton.draw()
         solobasicButtonText.draw()
@@ -467,37 +474,49 @@ def on_draw():
         watchbasicButtonText.draw()
         watchadvancedButton.draw()
         watchadvancedButtonText.draw()
+    elif state == "trainingmodemenu":
+        trainingbasicButton.draw()
+        trainingbasicButtonText.draw()
+        trainingadvancedButton.draw()
+        trainingadvancedButtonText.draw()
+    elif state == "scoresmenu":
+        pass
     elif state == "solobasic":
         batch.draw()
         timerLabel.draw()
         livesLabel.draw()
         scoreLabel.draw()
         stageLabel.draw()
+        exitButton.draw()
+        exitButtonText.draw()
     elif state == "soloadvanced":
         batch.draw()
         timerLabel.draw()
         livesLabel.draw()
         scoreLabel.draw()
         stageLabel.draw()
+        exitButton.draw()
+        exitButtonText.draw()
     elif state == "watchbasic":
         batch.draw()
         timerLabel.draw()
         livesLabel.draw()
         scoreLabel.draw()
         stageLabel.draw()
+        exitButton.draw()
+        exitButtonText.draw()
     elif state == "watchadvanced":
         batch.draw()
         timerLabel.draw()
         livesLabel.draw()
         scoreLabel.draw()
         stageLabel.draw()
+        exitButton.draw()
+        exitButtonText.draw()
     elif state == "gameover":
         gameoverLabel.draw()
-        restartButton.draw()
-        restartButtonText.draw()
-    elif state == "gamewon":
-        gamewonLabel.draw()
-        gamewonTimeLabel.draw()
+        scoreLabel.text = f"Final Score: {score}"
+        scoreLabel.draw()
         restartButton.draw()
         restartButtonText.draw()
 
@@ -508,8 +527,12 @@ def on_mouse_press(x, y, button, modifiers):
         if state == "menu":
             if 220 <= x <= 420 and 250 <= y <= 300:
                 state = "solomodemenu"
+            elif 220 <= x <= 420 and 200 <= y <= 250:
+                state = "trainingmodemenu"
             elif 220 <= x <= 420 and 150 <= y <= 200:
                 state = "watchmodemenu"
+            elif 220 <= x <= 420 and 100 <= y <= 150:
+                state = "scoresmenu"
         elif state == "solomodemenu":
             if 220 <= x <= 420 and 275 <= y <= 325:
                 resetGame()
@@ -517,6 +540,11 @@ def on_mouse_press(x, y, button, modifiers):
             elif 220 <= x <= 420 and 200 <= y <= 250:
                 resetGame()
                 state = "soloadvanced"
+        elif state == "trainingMenu":
+            if 220 <= x <= 420 and 275 <= y <= 325:
+                state = "trainingmodebasic"
+            elif 220 <= x <= 420 and 200 <= y <= 250:
+                state = "trainingmodeadvanced"
         elif state == "watchmodemenu":
             if 220 <= x <= 420 and 275 <= y <= 325:
                 resetGame()
@@ -524,11 +552,26 @@ def on_mouse_press(x, y, button, modifiers):
             elif 220 <= x <= 420 and 200 <= y <= 250:
                 resetGame()
                 state = "watchadvanced"
+        elif state == "solobasic":
+            if 510 <= x <= 610 and 450 <= y <= 490:
+                state = "menu"
+        elif state == "soloadvanced":
+            if 510 <= x <= 610 and 450 <= y <= 490:
+                state = "menu"
+        elif state == "watchbasic":
+            if 510 <= x <= 610 and 450 <= y <= 490:
+                state = "menu"
+        elif state == "watchadvanced":
+            if 510 <= x <= 610 and 450 <= y <= 490:
+                state = "menu"
+        elif state == "scoresScreen":
+            if 10 <= x <= 110 and 10 <= y <= 50:
+                state = "menu"
         elif state == "gameover":
             if 220 <= x <= 420 and 200 <= y <= 250:
                 state = "menu"
         elif state == "gamewon":
-            if 220 <= x <= 420 and 200 <= y <= 250:
+            if 540 <= x <= 640 and 440 <= y <= 480:
                 state = "menu"
 
 pyglet.clock.schedule_interval(update, 1/60.0)
