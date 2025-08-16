@@ -3,7 +3,7 @@ from pyglet.window import key, mouse
 from pyglet import shapes
 import numpy as np
 import os
-import pickle
+import json
 import atexit
 
 class Brick:
@@ -34,11 +34,8 @@ class Brick:
             self.shape.delete()
             return True
         return False
-    
-logicalWidth, logicalHeight = 64, 48
-scaleFactor = 10
 
-window = pyglet.window.Window(logicalWidth*scaleFactor, logicalHeight*scaleFactor, caption="Breakout")
+window = pyglet.window.Window(640, 520, caption="Breakout")
 keys = key.KeyStateHandler()
 window.push_handlers(keys)
 state = "menu" 
@@ -69,23 +66,24 @@ trainingadvancedButton = shapes.Rectangle(220, 200, 200, 50, color=(100, 100, 25
 trainingadvancedButtonText = pyglet.text.Label("Advanced Mode", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
 scoresButton = shapes.Rectangle(220, 100, 200, 50, color=(100, 100, 255))
 scoresButtonText = pyglet.text.Label("Scores", x=window.width//2, y=125, anchor_x='center', anchor_y='center')
-exitButton = shapes.Rectangle(540, 440, 100, 40, color=(200, 50, 50))
-exitButtonText = pyglet.text.Label("Exit", x=590, y=460, anchor_x='center', anchor_y='center')
+exitButton = shapes.Rectangle(540, 480, 100, 40, color=(200, 50, 50))
+exitButtonText = pyglet.text.Label("Exit", x=590, y=500, anchor_x='center', anchor_y='center')
 gameoverLabel = pyglet.text.Label("GAME OVER", font_size=32, x=window.width//2, y=310, anchor_x='center')
 gameoverscoreLabel = pyglet.text.Label("Score: 0", font_size=16, x=window.width//2, y=270, anchor_x='center')
 restartButton = shapes.Rectangle(220, 200, 200, 50, color=(255, 100, 100))
 restartButtonText = pyglet.text.Label("Return to Menu", x=window.width//2, y=225, anchor_x='center', anchor_y='center')
-timerLabel = pyglet.text.Label("Time elapsed: 0.00", x=10, y=450)
-livesLabel = pyglet.text.Label("Lives: 3", x=180, y=450)
-scoreLabel = pyglet.text.Label("Score: 0", x=280, y=450)
-stageLabel = pyglet.text.Label("Stage: 1", x=380, y=450)
+timerLabel = pyglet.text.Label("Time elapsed: 0.00", x=20, y=493)
+livesLabel = pyglet.text.Label("Lives: 3", x=200, y=493)
+scoreLabel = pyglet.text.Label("Score: 0", x=310, y=493)
+stageLabel = pyglet.text.Label("Stage: 1", x=430, y=493)
+header = shapes.Rectangle(x=0, y=480, width=640, height=40, color=(100, 100, 100), batch=batch)
 paddle = shapes.Rectangle(x=270, y=00, width=60, height=10, color=(255, 255, 255), batch=batch)
 ball = shapes.Rectangle(x=320, y=100, width=10, height=10, color=(255, 0, 0), batch=batch)
 ball.dx = 200
 ball.dy = 200
 bricks = []
 
-scoresFile = "scores.pkl"
+scoresFile = "scores.json"
 scoresData = {"Solo Mode Basic": 0,
             "Solo Mode Advanced": 0,
             "Training Mode Basic": 0,
@@ -95,11 +93,11 @@ scoresData = {"Solo Mode Basic": 0,
 def loadScores():
     global scoresData
     if os.path.exists(scoresFile):
-        with open(scoresFile, "rb") as f:
-            scoresData = pickle.load(f)
+        with open(scoresFile, "r") as f:
+            scoresData = json.load(f)
 def saveScores():
-    with open(scoresFile, "wb") as f:
-        pickle.dump(scoresData, f)
+    with open(scoresFile, "w") as f:
+        json.dump(scoresData, f)
 loadScores()
 
 class NeuralNetwork:
@@ -118,15 +116,15 @@ class NeuralNetwork:
         self.weights = []
         self.biases = []
         for i in range(len(self.layerSizes) - 1):
-            fan_in = self.layerSizes[i]
-            fan_out = self.layerSizes[i+1]
-            std = np.sqrt(2.0 / fan_in)
-            W = np.random.randn(fan_out, fan_in) * std
-            b = np.zeros((fan_out, 1))
+            numsIn = self.layerSizes[i]
+            numsOut = self.layerSizes[i+1]
+            HeInit = np.sqrt(2.0 / numsIn)
+            W = np.random.randn(numsOut, numsIn) * HeInit
+            b = np.zeros((numsOut, 1))
             self.weights.append(W)
             self.biases.append(b)
 
-    def forward(self, x):
+    def forprop(self, x):
         a = x
         for i in range(len(self.weights) - 1):
             z = self.weights[i] @ a + self.biases[i]
@@ -135,17 +133,19 @@ class NeuralNetwork:
         return z
 
     def save(self):
-        with open(self.saveFile, "wb") as f:
-            pickle.dump({"weights": self.weights, "biases": self.biases}, f)
+        with open(self.saveFile, "w") as f:
+            json.dump({
+                "weights": [w.tolist() for w in self.weights],
+                "biases": [b.tolist() for b in self.biases]}, f)
 
     def load(self):
-        with open(self.saveFile, "rb") as f:
-            data = pickle.load(f)
-            self.weights = data["weights"]
-            self.biases = data["biases"]
+        with open(self.saveFile, "r") as f:
+            data = json.load(f)
+            self.weights = [np.array(w) for w in data["weights"]]
+            self.biases = [np.array(b) for b in data["biases"]]
 
-nn_basic = NeuralNetwork([59, 32, 16, 3], saveFile="nn_basic.pkl")
-nn_advanced = NeuralNetwork([59, 50, 30, 3], saveFile="nn_advanced.pkl")
+nn_basic = NeuralNetwork([59, 32, 32, 16, 3], saveFile="nn_basic.json")
+nn_advanced = NeuralNetwork([59, 50, 30, 30, 3], saveFile="nn_advanced.json")
 atexit.register(nn_basic.save)
 atexit.register(nn_advanced.save)
 
@@ -175,38 +175,32 @@ def createBricks():
     for row in range(rows):
         for col in range(cols):
             x = startX + col*brickWidth
-            y = window.height-topOffset-row*brickHeight
+            y = 480-topOffset-row*brickHeight
             bricks.append(Brick(x, y, brickWidth, brickHeight))
 
 def get_nn_input_basic():
     brickBits = [1 if brick.alive else 0 for brick in bricks]
-
     nx = ball.x / window.width
-    ny = ball.y / window.height
-
+    ny = ball.y / 480
     scale = 300.0
     ndx = max(-1.0, min(1.0, ball.dx / scale))
     ndy = max(-1.0, min(1.0, ball.dy / scale))
-
     vec = brickBits + [nx, ny, ndx, ndy]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
 def get_nn_input_advanced():
     brickBits = [1 if brick.alive else 0 for brick in bricks]
-
     nx = ball.x / window.width
-    ny = ball.y / window.height
-
+    ny = ball.y / 480
     speed_scale = 300.0
     ndx = np.tanh(ball.dx / speed_scale)
     ndy = np.tanh(ball.dy / speed_scale)
-
     vec = brickBits + [nx, ny, float(ndx), float(ndy)]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
-def ai_move(nn, input_fn, dt):
-    nn_input = input_fn()
-    scores = nn.forward(nn_input)
+def ai_move(nn, inputFunc, dt):
+    nn_input = inputFunc()
+    scores = nn.forprop(nn_input)
     action = int(np.argmax(scores))
 
     if action == 0:
@@ -249,10 +243,12 @@ def update(dt):
                 score +=1
                 scoreLabel.text = f"Score: {score}"
                 break
-        if ball.x+ball.dx/60 <= 0 or ball.x > window.width-ball.width:
-            ball.dx *= -1
-        if ball.y > window.height - ball.height:
-            ball.dy *= -1
+        if ball.x+ball.dx/60 <= 0:
+            ball.dx = abs(ball.dx)
+        elif ball.x > window.width-ball.width:
+            ball.dx = -1*abs(ball.dx)
+        if ball.y > 480 - ball.height:
+            ball.dy = -1*abs(ball.dy)
 
         if (paddle.y <= ball.y <= paddle.y+paddle.height) and \
             (paddle.x-ball.width <= ball.x <= paddle.x+paddle.width+ball.width):
@@ -312,10 +308,12 @@ def update(dt):
                 score +=1
                 scoreLabel.text = f"Score: {score}"
                 break
-        if ball.x+ball.dx/60 <= 0 or ball.x > window.width-ball.width:
-            ball.dx *= -1
-        if ball.y > window.height - ball.height:
-            ball.dy *= -1
+        if ball.x+ball.dx/60 <= 0:
+            ball.dx = abs(ball.dx)
+        elif ball.x > window.width-ball.width:
+            ball.dx = -1*abs(ball.dx)
+        if ball.y > 480 - ball.height:
+            ball.dy = -1*abs(ball.dy)
 
         if (ball.y+ball.dy/60 <= paddle.y+paddle.height)and(paddle.x-ball.width<=ball.x<=paddle.x+paddle.width):
             ball.dy = abs(ball.dy)
@@ -370,11 +368,12 @@ def update(dt):
                 score += 1
                 scoreLabel.text = f"Score: {score}"
                 break
-
-        if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
-            ball.dx *= -1
-        if ball.y > window.height - ball.height:
-            ball.dy *= -1
+        if ball.x+ball.dx/60 <= 0:
+            ball.dx = abs(ball.dx)
+        elif ball.x > window.width-ball.width:
+            ball.dx = -1*abs(ball.dx)
+        if ball.y > 480 - ball.height:
+            ball.dy = -1*abs(ball.dy)
 
         if (paddle.y <= ball.y <= paddle.y + paddle.height) and \
            (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width + ball.width):
@@ -428,11 +427,12 @@ def update(dt):
                 score += 1
                 scoreLabel.text = f"Score: {score}"
                 break
-
-        if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
-            ball.dx *= -1
-        if ball.y > window.height - ball.height:
-            ball.dy *= -1
+        if ball.x+ball.dx/60 <= 0:
+            ball.dx = abs(ball.dx)
+        elif ball.x > window.width-ball.width:
+            ball.dx = -1*abs(ball.dx)
+        if ball.y > 480 - ball.height:
+            ball.dy = -1*abs(ball.dy)
 
         if (ball.y + ball.dy/60 <= paddle.y + paddle.height) and \
            (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width):
@@ -491,11 +491,12 @@ def update(dt):
                 score += 1
                 scoreLabel.text = f"Score: {score}"
                 break
-
-        if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
-            ball.dx *= -1
-        if ball.y > window.height - ball.height:
-            ball.dy *= -1
+        if ball.x+ball.dx/60 <= 0:
+            ball.dx = abs(ball.dx)
+        elif ball.x > window.width-ball.width:
+            ball.dx = -1*abs(ball.dx)
+        if ball.y > 480 - ball.height:
+            ball.dy = -1*abs(ball.dy)
 
         if (paddle.y <= ball.y <= paddle.y + paddle.height) and \
            (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width + ball.width):
@@ -552,7 +553,7 @@ def update(dt):
 
         if ball.x + ball.dx/60 <= 0 or ball.x > window.width - ball.width:
             ball.dx *= -1
-        if ball.y > window.height - ball.height:
+        if ball.y > 480 - ball.height:
             ball.dy *= -1
 
         if (ball.y + ball.dy/60 <= paddle.y + paddle.height) and \
@@ -714,31 +715,31 @@ def on_mouse_press(x, y, button, modifiers):
                 resetGame()
                 state = "watchadvanced"
         elif state == "solobasic":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "soloadvanced":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "trainingbasic":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "trainingadvanced":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "watchbasic":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "watchadvanced":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "scoresmenu":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
         elif state == "gameover":
             if 220 <= x <= 420 and 200 <= y <= 250:
                 state = "menu"
         elif state == "gamewon":
-            if 540 <= x <= 640 and 440 <= y <= 480:
+            if 540 <= x <= 640 and 480 <= y <= 520:
                 state = "menu"
 
 pyglet.clock.schedule_interval(update, 1/60.0)
