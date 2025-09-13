@@ -5,6 +5,8 @@ import numpy as np
 import os
 import json
 import atexit
+import random
+import math
 
 class Brick:
     def __init__(self, x, y, width, height, color=(100, 200, 255)):
@@ -77,7 +79,7 @@ livesLabel = pyglet.text.Label("Lives: 3", x=200, y=493)
 scoreLabel = pyglet.text.Label("Score: 0", x=310, y=493)
 stageLabel = pyglet.text.Label("Stage: 1", x=430, y=493)
 header = shapes.Rectangle(x=0, y=480, width=640, height=40, color=(100, 100, 100), batch=batch)
-paddle = shapes.Rectangle(x=270, y=00, width=60, height=10, color=(255, 255, 255), batch=batch)
+paddle = shapes.Rectangle(x=290, y=00, width=60, height=10, color=(255, 255, 255), batch=batch)
 ball = shapes.Rectangle(x=320, y=100, width=10, height=10, color=(255, 0, 0), batch=batch)
 ball.dx = 200
 ball.dy = 200
@@ -131,12 +133,44 @@ class NeuralNetwork:
             a = np.maximum(z, 0.0)
         z = self.weights[-1] @ a + self.biases[-1]
         return z
+    
+    def backprop(self, inp, exp):
+        a = inp
+        activations = [inp]
+        preact = []
+        for i in range(len(self.weights) - 1):
+            z = self.weights[i] @ a + self.biases[i]
+            preact.append(z)
+            a = np.maximum(z, 0.0)
+            activations.append(a)
+        z = self.weights[-1] @ a + self.biases[-1]
+        preact.append(z)
+        output = z
+        activations.append(output)
+        
+        if isinstance(exp, (int, float)):
+            exp_vec = np.zeros((3, 1))
+            exp_vec[int(exp)] = 1.0
+        else:
+            exp_vec = exp.reshape(-1, 1) if exp.shape != (3, 1) else exp
+        
+        delta = output - exp_vec
+        deltaw = []
+        deltab = []
+        deltaw.append(delta @ activations[-2].T)
+        deltab.append(delta)
+        
+        for i in range(len(self.weights) - 2, -1, -1):
+            delta = self.weights[i + 1].T @ delta
+            delta = delta * (preact[i] > 0).astype(np.float32)
+            deltaw.insert(0, delta @ activations[i].T)
+            deltab.insert(0, delta)
+        return deltaw, deltab
+
 
     def save(self):
         with open(self.saveFile, "w") as f:
-            json.dump({
-                "weights": [w.tolist() for w in self.weights],
-                "biases": [b.tolist() for b in self.biases]}, f)
+            json.dump({"weights": [w.tolist() for w in self.weights], "biases": [b.tolist() for b in self.biases]}, f)
 
     def load(self):
         with open(self.saveFile, "r") as f:
@@ -144,11 +178,11 @@ class NeuralNetwork:
             self.weights = [np.array(w) for w in data["weights"]]
             self.biases = [np.array(b) for b in data["biases"]]
 
-nn_basic = NeuralNetwork([59, 32, 32, 16, 3], saveFile="nn_basic.json")
-nn_advanced = NeuralNetwork([59, 50, 30, 30, 3], saveFile="nn_advanced.json")
+nn_basic = NeuralNetwork([60, 32, 16, 3], saveFile="nn_basic.json")
+nn_advanced = NeuralNetwork([60, 50, 30, 3], saveFile="nn_advanced.json")
 atexit.register(nn_basic.save)
 atexit.register(nn_advanced.save)
-
+lr = 0.001
 def resetGame():
     global ball, paddle, elapsedTime, state, lives, gameStarted, score, stage
     ball.x = paddle.x+paddle.width//2-ball.width//2
@@ -178,29 +212,103 @@ def createBricks():
             y = 480-topOffset-row*brickHeight
             bricks.append(Brick(x, y, brickWidth, brickHeight))
 
-def get_nn_input_basic():
-    brickBits = [1 if brick.alive else 0 for brick in bricks]
-    nx = ball.x / window.width
-    ny = ball.y / 480
-    scale = 300.0
-    ndx = max(-1.0, min(1.0, ball.dx / scale))
-    ndy = max(-1.0, min(1.0, ball.dy / scale))
-    vec = brickBits + [nx, ny, ndx, ndy]
+def get_training_input_basic():
+    mode = int(np.random.choice([1, 2, 3, 4, 5]))
+    if mode == 1:
+        vec = [1]*55
+    elif mode == 2:
+        vec = [0]*55
+    elif mode == 3:
+        vec = [1 if random.random() < 0.8 else 0 for _ in range(55)]
+    else:
+        vec = [1 if random.random() < 0.2 else 0 for _ in range(55)]
+
+    x = random.uniform(0, 630)
+    y = random.uniform(0, 310)
+    dx = random.choice([-200.0, 200.0])
+    dy = random.choice([-200.0, 200.0])
+    paddlex = random.uniform(0, 580)
+    nx = x/630.0
+    ny = y/310.0
+    ndx = dx/200.0
+    ndy = dy/200.0
+    pa = paddlex / 580.0
+    vec = vec + [nx, ny, ndx, ndy, pa]
+
+    if dx == 0:
+        fx = x
+    elif dy/dx < 0:
+        fx = x - y*(dx/dy)
+    else:
+        fx = x + (dx/dy)*(620-y)
+    while fx<0 or fx>630:
+        if fx < 0:
+            fx=abs(fx)
+        elif fx > 630:
+            fx = 630 - fx
+    if fx < paddlex:
+        ans = 0
+    elif fx > paddlex:
+        ans = 2
+    else:
+        ans = 1
+    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
+
+def get_training_input_advanced():
+    mode = int(np.random.choice([1, 2, 3, 4, 5]))
+    if mode == 1:
+        vec = [1]*55
+    elif mode == 2:
+        vec = [0]*55
+    elif mode == 3:
+        vec = [1 if random.random() < 0.8 else 0 for _ in range(55)]
+    else:
+        vec = [1 if random.random() < 0.2 else 0 for _ in range(55)]
+
+    x = random.uniform(0, 630)
+    y = random.uniform(0, 310)
+    dy = random.choice([-200.0, 200.0])
+    mean = -200 if random.random() < 0.5 else 200
+    dx = random.gauss(mu=mean, sigma=100)
+    paddlex = random.uniform(0, 580)
+    nx = x / 630.0
+    ny = y / 310.0
+    ndx = dx / 200.0
+    ndy = dy / 200.0
+    pa = paddlex / 580.0
+    vec = vec + [nx, ny, ndx, ndy, pa]
+
+    if dx == 0:
+        fx = x
+    elif dy/dx < 0:
+        fx = x - y*(dx/dy)
+    else:
+        fx = x + (dx/dy)*(620-y)
+    while fx<0 or fx>630:
+        if fx < 0:
+            fx=abs(fx)
+        elif fx > 630:
+            fx = 630 - fx
+    if fx < paddlex:
+        ans = 0
+    elif fx > paddlex:
+        ans = 2
+    else:
+        ans = 1
+    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
+
+def get_nn_input():
+    vec = [1 if Brick.alive else 0 for Brick in bricks]
+    nx = ball.x/630.0
+    ny = ball.y/310.0
+    ndx = ball.dx/200.0
+    ndy = ball.dy/200.0
+    pa = paddle.x/580.0
+    vec = vec + [nx, ny, ndx, ndy, pa]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
-def get_nn_input_advanced():
-    brickBits = [1 if brick.alive else 0 for brick in bricks]
-    nx = ball.x / window.width
-    ny = ball.y / 480
-    speed_scale = 300.0
-    ndx = np.tanh(ball.dx / speed_scale)
-    ndy = np.tanh(ball.dy / speed_scale)
-    vec = brickBits + [nx, ny, float(ndx), float(ndy)]
-    return np.array(vec, dtype=np.float32).reshape(-1, 1)
-
-def ai_move(nn, inputFunc, dt):
-    nn_input = inputFunc()
-    scores = nn.forprop(nn_input)
+def ai_move(nn, inp, dt):
+    scores = nn.forprop(inp)
     action = int(np.argmax(scores))
 
     if action == 0:
@@ -357,53 +465,14 @@ def update(dt):
             gameStarted = True
 
         elapsedTime += dt
+        inp, ans = get_training_input_basic()
+        ai_move(nn_basic, inp, dt)
 
-        ai_move(nn_basic, get_nn_input_basic, dt)
+        dW_list, db_list = nn_basic.backprop(inp, ans)
 
-        ball.x += ball.dx * dt
-        ball.y += ball.dy * dt
-
-        for brick in bricks:
-            if brick.checkCollision(ball):
-                score += 1
-                scoreLabel.text = f"Score: {score}"
-                break
-        if ball.x+ball.dx/60 <= 0:
-            ball.dx = abs(ball.dx)
-        elif ball.x > window.width-ball.width:
-            ball.dx = -1*abs(ball.dx)
-        if ball.y > 480 - ball.height:
-            ball.dy = -1*abs(ball.dy)
-
-        if (paddle.y <= ball.y <= paddle.y + paddle.height) and \
-           (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width + ball.width):
-            ball.dy = abs(ball.dy)
-
-        if ball.y < 0:
-            lives -= 1
-            gameStarted = False
-            ball.x = paddle.x + paddle.width//2 - ball.width//2
-            ball.y = paddle.y + paddle.height + 1
-            ball.dx, ball.dy = 0, 0
-
-        if lives == 0:
-            if score>scoresData["Training Mode Basic"]:
-                scoresData["Training Mode Basic"] = score
-                saveScores()
-            gameoverscoreLabel.text = f"Score: {score}"
-            state = "gameover"
-            lives = 5
-            score = 0
-            stage = 1
-
-        if all(not brick.alive for brick in bricks):
-            stage += 1
-            stageLabel.text = f"Stage: {stage}"
-            gameStarted = False
-            ball.dx, ball.dy = 0, 0
-            ball.x = paddle.x+paddle.width//2-ball.width//2
-            ball.y = 1
-            createBricks()
+        for i in range(len(nn_basic.weights)):
+            nn_basic.weights[i] -= lr * dW_list[i]
+            nn_basic.biases[i]  -= lr * db_list[i]
 
     elif state == "trainingadvanced":
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
@@ -416,58 +485,14 @@ def update(dt):
             gameStarted = True
 
         elapsedTime += dt
+        inp, ans = get_training_input_advanced()
+        ai_move(nn_advanced, inp, dt)
 
-        ai_move(nn_advanced, get_nn_input_advanced, dt)
+        dW_list, db_list = nn_advanced.backprop(inp, ans)
 
-        ball.x += ball.dx * dt
-        ball.y += ball.dy * dt
-
-        for brick in bricks:
-            if brick.checkCollision(ball):
-                score += 1
-                scoreLabel.text = f"Score: {score}"
-                break
-        if ball.x+ball.dx/60 <= 0:
-            ball.dx = abs(ball.dx)
-        elif ball.x > window.width-ball.width:
-            ball.dx = -1*abs(ball.dx)
-        if ball.y > 480 - ball.height:
-            ball.dy = -1*abs(ball.dy)
-
-        if (ball.y + ball.dy/60 <= paddle.y + paddle.height) and \
-           (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width):
-            ball.dy = abs(ball.dy)
-            if (paddle.x - ball.width/2 <= ball.x + ball.width/2 <= paddle.x + paddle.width/4) or \
-               (paddle.x + 3*(paddle.width/4) <= ball.x + ball.width/2 <= paddle.x + paddle.width + ball.width/2):
-                ball.dx *= 1.2
-            elif paddle.x + (paddle.width/2) < ball.x + ball.width/2 < paddle.x + 3*(paddle.width/4):
-                ball.dx *= 0.8
-
-        if ball.y < 0:
-            lives -= 1
-            gameStarted = False
-            ball.x = paddle.x + paddle.width//2 - ball.width//2
-            ball.y = paddle.y + paddle.height + 1
-            ball.dx, ball.dy = 0, 0
-
-        if lives == 0:
-            if score>scoresData["Training Mode Advanced"]:
-                scoresData["Training Mode Advanced"] = score
-                saveScores()
-            gameoverscoreLabel.text = f"Score: {score}"
-            state = "gameover"
-            lives = 5
-            score = 0
-            stage = 1
-
-        if all(not brick.alive for brick in bricks):
-            stage += 1
-            stageLabel.text = f"Stage: {stage}"
-            gameStarted = False
-            ball.dx, ball.dy = 0, 0
-            ball.x = paddle.x+paddle.width//2-ball.width//2
-            ball.y = 1
-            createBricks()
+        for i in range(len(nn_advanced.weights)):
+            nn_advanced.weights[i] -= lr * dW_list[i]
+            nn_advanced.biases[i]  -= lr * db_list[i]
 
     elif state == "watchbasic":
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
@@ -480,8 +505,8 @@ def update(dt):
             gameStarted = True
 
         elapsedTime += dt
-
-        ai_move(nn_basic, get_nn_input_basic, dt)
+        inp = get_nn_input()
+        ai_move(nn_basic, inp, dt)
 
         ball.x += ball.dx * dt
         ball.y += ball.dy * dt
@@ -539,8 +564,8 @@ def update(dt):
             gameStarted = True
 
         elapsedTime += dt
-
-        ai_move(nn_advanced, get_nn_input_advanced, dt)
+        inp = get_nn_input()
+        ai_move(nn_advanced, inp, dt)
 
         ball.x += ball.dx * dt
         ball.y += ball.dy * dt
@@ -643,19 +668,13 @@ def on_draw():
         exitButton.draw()
         exitButtonText.draw()
     elif state == "trainingbasic":
-        batch.draw()
+        paddle.draw()
         timerLabel.draw()
-        livesLabel.draw()
-        scoreLabel.draw()
-        stageLabel.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "trainingadvanced":
-        batch.draw()
+        paddle.draw()
         timerLabel.draw()
-        livesLabel.draw()
-        scoreLabel.draw()
-        stageLabel.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "watchbasic":
