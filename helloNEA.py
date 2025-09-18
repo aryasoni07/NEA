@@ -78,6 +78,13 @@ timerLabel = pyglet.text.Label("Time elapsed: 0.00", x=20, y=493)
 livesLabel = pyglet.text.Label("Lives: 3", x=200, y=493)
 scoreLabel = pyglet.text.Label("Score: 0", x=310, y=493)
 stageLabel = pyglet.text.Label("Stage: 1", x=430, y=493)
+
+accuracyLabel = pyglet.text.Label("Accuracy: 0%", x=20, y=470)
+trainingbatch = pyglet.graphics.Batch()
+trainingelements = []
+accuracyBasic = []
+accuracyAdvanced = []
+
 header = shapes.Rectangle(x=0, y=480, width=640, height=40, color=(100, 100, 100), batch=batch)
 paddle = shapes.Rectangle(x=290, y=00, width=60, height=10, color=(255, 255, 255), batch=batch)
 ball = shapes.Rectangle(x=320, y=100, width=10, height=10, color=(255, 0, 0), batch=batch)
@@ -147,13 +154,8 @@ class NeuralNetwork:
         preact.append(z)
         output = z
         activations.append(output)
-        
-        if isinstance(exp, (int, float)):
-            exp_vec = np.zeros((3, 1))
-            exp_vec[int(exp)] = 1.0
-        else:
-            exp_vec = exp.reshape(-1, 1) if exp.shape != (3, 1) else exp
-        
+        exp_vec = np.zeros((3, 1))
+        exp_vec[int(exp)] = 1.0
         delta = output - exp_vec
         deltaw = []
         deltab = []
@@ -178,8 +180,8 @@ class NeuralNetwork:
             self.weights = [np.array(w) for w in data["weights"]]
             self.biases = [np.array(b) for b in data["biases"]]
 
-nn_basic = NeuralNetwork([60, 32, 16, 3], saveFile="nn_basic.json")
-nn_advanced = NeuralNetwork([60, 50, 30, 3], saveFile="nn_advanced.json")
+nn_basic = NeuralNetwork([60, 60, 40, 3], saveFile="nn_basic.json")
+nn_advanced = NeuralNetwork([60, 60, 50, 3], saveFile="nn_advanced.json")
 atexit.register(nn_basic.save)
 atexit.register(nn_advanced.save)
 lr = 0.001
@@ -246,9 +248,9 @@ def get_training_input_basic():
             fx=abs(fx)
         elif fx > 630:
             fx = 630 - fx
-    if fx < paddlex:
+    if fx < (paddlex+30):
         ans = 0
-    elif fx > paddlex:
+    elif fx > (paddlex+30):
         ans = 2
     else:
         ans = 1
@@ -289,13 +291,57 @@ def get_training_input_advanced():
             fx=abs(fx)
         elif fx > 630:
             fx = 630 - fx
-    if fx < paddlex:
+    if fx < paddlex+30:
         ans = 0
-    elif fx > paddlex:
+    elif fx > paddlex+30:
         ans = 2
     else:
         ans = 1
     return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
+
+def update_training_visual(vec):
+
+    global trainingelements
+    for s in trainingelements:
+        try:
+            s.delete()
+        except:
+            pass
+    trainingelements = []
+
+    bricks_mask = vec[:55]
+    nx, ny, ndx, ndy, pa = vec[55:]
+
+    x = float(nx) * 630.0
+    y = float(ny) * 310.0
+    paddlex = float(pa) * 580.0
+
+    rows, cols = 5, 11
+    brick_w, brick_h = 60, 20
+    top_offset = 60
+    startX = (window.width - cols * brick_w) // 2
+
+    for row in range(rows):
+        for col in range(cols):
+            idx = row * cols + col
+            if bricks_mask[idx] >= 0.5:
+                rx = startX + col * brick_w
+                ry = 480 - top_offset - row * brick_h
+                r = shapes.Rectangle(rx, ry, brick_w, brick_h, color=(120, 200, 255), batch=trainingbatch)
+                trainingelements.append(r)
+
+    pr = shapes.Rectangle(int(paddlex), 0, 60, 10, color=(255, 255, 255), batch=trainingbatch)
+    trainingelements.append(pr)
+
+    br = shapes.Rectangle(int(x), int(y), 10, 10, color=(255, 0, 0), batch=trainingbatch)
+    trainingelements.append(br)
+
+def update_accuracy(history, isCorrect):
+    history.append(1 if isCorrect else 0)
+    if len(history) > 50:
+        history.pop(0)
+    percent = 100.0 * sum(history) / len(history)
+    return f"Accuracy: {percent:.1f}%"
 
 def get_nn_input():
     vec = [1 if Brick.alive else 0 for Brick in bricks]
@@ -310,11 +356,11 @@ def get_nn_input():
 def ai_move(nn, inp, dt):
     scores = nn.forprop(inp)
     action = int(np.argmax(scores))
-
+    choice = np.max(scores)
     if action == 0:
-        paddle.x -= 300 * dt
+        paddle.x -= 300 * dt * choice
     elif action == 2:
-        paddle.x += 300 * dt
+        paddle.x += 300 * dt * choice
 
     paddle.x = max(0, min(window.width - paddle.width, paddle.x))
 
@@ -455,41 +501,35 @@ def update(dt):
             createBricks()
     
     elif state == "trainingbasic":
+        global accuracyBasic
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
-        livesLabel.text = f"Lives: {lives}"
-        scoreLabel.text = f"Score: {score}"
-        stageLabel.text = f"Stage: {stage}"
-
-        if not gameStarted:
-            ball.dx, ball.dy = 200, 200
-            gameStarted = True
-
         elapsedTime += dt
+
         inp, ans = get_training_input_basic()
+        scores_now = nn_basic.forprop(inp)
+        pred = int(np.argmax(scores_now))
+        accuracyLabel.text = update_accuracy(accuracyBasic, pred == ans)
+        update_training_visual(inp.flatten())
         ai_move(nn_basic, inp, dt)
 
         dW_list, db_list = nn_basic.backprop(inp, ans)
-
         for i in range(len(nn_basic.weights)):
             nn_basic.weights[i] -= lr * dW_list[i]
             nn_basic.biases[i]  -= lr * db_list[i]
 
     elif state == "trainingadvanced":
+        global accuracyAdvanced
         timerLabel.text = f"Time elapsed: {elapsedTime:.2f}"
-        livesLabel.text = f"Lives: {lives}"
-        scoreLabel.text = f"Score: {score}"
-        stageLabel.text = f"Stage: {stage}"
-
-        if not gameStarted:
-            ball.dx, ball.dy = 200, 200
-            gameStarted = True
-
         elapsedTime += dt
+
         inp, ans = get_training_input_advanced()
+        scores_now = nn_advanced.forprop(inp)
+        pred = int(np.argmax(scores_now))
+        accuracyLabel.text = update_accuracy(accuracyAdvanced, pred == ans)
+        update_training_visual(inp.flatten())
         ai_move(nn_advanced, inp, dt)
 
         dW_list, db_list = nn_advanced.backprop(inp, ans)
-
         for i in range(len(nn_advanced.weights)):
             nn_advanced.weights[i] -= lr * dW_list[i]
             nn_advanced.biases[i]  -= lr * db_list[i]
@@ -668,13 +708,15 @@ def on_draw():
         exitButton.draw()
         exitButtonText.draw()
     elif state == "trainingbasic":
-        paddle.draw()
         timerLabel.draw()
+        accuracyLabel.draw()
+        trainingbatch.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "trainingadvanced":
-        paddle.draw()
         timerLabel.draw()
+        accuracyLabel.draw()
+        trainingbatch.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "watchbasic":
@@ -729,9 +771,11 @@ def on_mouse_press(x, y, button, modifiers):
         elif state == "watchmodemenu":
             if 220 <= x <= 420 and 275 <= y <= 325:
                 resetGame()
+                paddle.x = 580 * random.random()
                 state = "watchbasic"
             elif 220 <= x <= 420 and 200 <= y <= 250:
                 resetGame()
+                paddle.x = 580 * random.random()
                 state = "watchadvanced"
         elif state == "solobasic":
             if 540 <= x <= 640 and 480 <= y <= 520:
