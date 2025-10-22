@@ -6,38 +6,8 @@ import os
 import json
 import atexit
 import random
-
-class Brick:
-    def __init__(self, x, y, width, height, color=(100, 200, 255)):
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.shape = shapes.Rectangle(x, y, width, height, color=color, batch=batch)
-        self.alive = True
-    def checkCollision(self, ball):
-        if not self.alive:
-            return False
-        nextx = ball.x + ball.width/2 + ball.dx/60 #make sure this number is equal to the fps
-        nexty = ball.y + ball.width/2 + ball.dy/60
-        brickLeft, brickRight, brickTop, brickBottom = self.x, self.x+self.width, self.y, self.y+self.height
-        ballLeft, ballRight, ballTop, ballBottom = nextx, nextx+ball.width, nexty, nexty+ball.height
-        if (ballRight > brickLeft and ballLeft < brickRight and
-            ballBottom > brickTop and ballTop < brickBottom):
-            overlapLeft =  ballRight-brickLeft
-            overlapRight = brickRight-ballLeft
-            overlapTop = ballBottom-brickTop
-            overlapBottom = brickBottom-ballTop
-            overlapx = min(overlapLeft, overlapRight)
-            overlapy = min(overlapTop, overlapBottom)
-            if overlapx < overlapy:
-                ball.dx *= -1
-            else:
-                ball.dy *= -1
-            self.alive = False
-            self.shape.delete()
-            return True
-        return False
+from brick import Brick
+from neuralnetwork import NeuralNetwork
 
 window = pyglet.window.Window(640, 520, caption="Breakout")
 keys = key.KeyStateHandler()
@@ -113,82 +83,6 @@ def saveScores():
         json.dump(scoresData, f)
 loadScores()
 
-def softmax(preacts):
-    m = np.max(preacts, axis=0, keepdims=True)
-    e = np.exp(preacts - m)
-    return e / np.sum(e, axis=0, keepdims=True)
-
-class NeuralNetwork:
-    def __init__(self, layerSizes, saveFile):
-        self.layerSizes = layerSizes
-        self.saveFile = saveFile
-        self.weights = []
-        self.biases = []
-
-        if os.path.exists(self.saveFile):
-            self.load()
-        else:
-            self.initRandomWeights()
-
-    def initRandomWeights(self):
-        self.weights = []
-        self.biases = []
-        for i in range(len(self.layerSizes) - 1):
-            numsIn = self.layerSizes[i]
-            numsOut = self.layerSizes[i+1]
-            HeInit = np.sqrt(2.0 / numsIn)
-            W = np.random.randn(numsOut, numsIn) * HeInit
-            b = np.zeros((numsOut, 1))
-            self.weights.append(W)
-            self.biases.append(b)
-
-    def forprop(self, x, return_probs=False):
-        a = x
-        for i in range(len(self.weights) - 1):
-            z = self.weights[i] @ a + self.biases[i]
-            a = np.maximum(z, 0.0)
-        raw_out = self.weights[-1] @ a + self.biases[-1]
-        if return_probs:
-            probs = softmax(raw_out)
-            return raw_out, probs
-        return raw_out
-    
-    def backprop(self, inp, exp):
-        a = inp
-        activations = [inp]
-        preact = []
-        for i in range(len(self.weights) - 1):
-            z = self.weights[i] @ a + self.biases[i]
-            preact.append(z)
-            a = np.maximum(z, 0.0)
-            activations.append(a)
-        z = self.weights[-1] @ a + self.biases[-1]
-        preact.append(z)
-        activations.append(z)
-        exp_vec = np.zeros((3, 1), dtype=np.float32)
-        exp_vec[int(exp)] = 1.0
-        p = softmax(z)
-        delta = p - exp_vec
-        deltaw = [delta @ activations[-2].T]
-        deltab = [delta]
-        for i in range(len(self.weights) - 2, -1, -1):
-            delta = self.weights[i + 1].T @ delta
-            delta = delta * (preact[i] > 0).astype(np.float32)
-            deltaw.insert(0, delta @ activations[i].T)
-            deltab.insert(0, delta)
-        return deltaw, deltab
-
-
-    def save(self):
-        with open(self.saveFile, "w") as f:
-            json.dump({"weights": [w.tolist() for w in self.weights], "biases": [b.tolist() for b in self.biases]}, f)
-
-    def load(self):
-        with open(self.saveFile, "r") as f:
-            data = json.load(f)
-            self.weights = [np.array(w) for w in data["weights"]]
-            self.biases = [np.array(b) for b in data["biases"]]
-
 nn_basic = NeuralNetwork([60, 70, 50, 3], saveFile="nn_basic.json")
 nn_advanced = NeuralNetwork([60, 80, 60, 3], saveFile="nn_advanced.json")
 atexit.register(nn_basic.save)
@@ -221,7 +115,7 @@ def createBricks():
         for col in range(cols):
             x = startX + col*brickWidth
             y = 480-topOffset-row*brickHeight
-            bricks.append(Brick(x, y, brickWidth, brickHeight))
+            bricks.append(Brick(x, y, brickWidth, brickHeight, batch))
 
 def get_training_input_basic():
     mode = int(np.random.choice([1, 2, 3, 4, 5]))
@@ -761,10 +655,11 @@ def on_draw():
         trainingadvancedButton.draw()
         trainingadvancedButtonText.draw()
     elif state == "scoresmenu":
-        y = 400
+        pyglet.text.Label("HIGH SCORES", font_size=28, x=window.width//2, y=460, anchor_x="center", color=(200, 255, 255, 255)).draw()
+        y = 360
         for gamestate, highscore in scoresData.items():
-            pyglet.text.Label(f"{gamestate}: {highscore}",x=window.width//2,y=y,anchor_x='center').draw()
-            y-=60
+            pyglet.text.Label(f"{gamestate.upper().ljust(28, '.')} {highscore}", font_name="Courier New", font_size=16, x=125, y=y).draw()
+            y -= 70
         exitButton.draw()
         exitButtonText.draw()
     elif state == "solobasic":
