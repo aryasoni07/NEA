@@ -83,8 +83,8 @@ def saveScores():
         json.dump(scoresData, f)
 loadScores()
 
-nn_basic = NeuralNetwork([60, 70, 50, 3], saveFile="nn_basic.json")
-nn_advanced = NeuralNetwork([60, 80, 60, 3], saveFile="nn_advanced.json")
+nn_basic = NeuralNetwork([5, 2000, 1000, 3], saveFile="nn_basic.json")
+nn_advanced = NeuralNetwork([5, 2000, 1000, 3], saveFile="nn_advanced.json")
 atexit.register(nn_basic.save)
 atexit.register(nn_advanced.save)
 lr = 0.001
@@ -117,142 +117,13 @@ def createBricks():
             y = 480-topOffset-row*brickHeight
             bricks.append(Brick(x, y, brickWidth, brickHeight, batch))
 
-def get_training_input_basic():
-    mode = int(np.random.choice([1, 2, 3, 4, 5]))
-    if mode == 1:
-        vec = [1]*55
-    elif mode == 2:
-        vec = [0]*55
-    elif mode == 3:
-        vec = [1 if random.random() < 0.8 else 0 for _ in range(55)]
-    else:
-        vec = [1 if random.random() < 0.2 else 0 for _ in range(55)]
-
-    x = random.uniform(0, 630)
-    y = random.uniform(0, 310)
-    dx = random.choice([-200.0, 200.0])
-    dy = random.choice([-200.0, 200.0])
-    paddlex = random.uniform(0, 580)
-    nx = x/630.0
-    ny = y/310.0
-    ndx = dx/200.0
-    ndy = dy/200.0
-    pa = paddlex / 580.0
-    vec = vec + [nx, ny, ndx, ndy, pa]
-
-    if dx == 0:
-        fx = x
-    elif dy/dx < 0:
-        fx = x - y*(dx/dy)
-    else:
-        fx = x + (dx/dy)*(620-y)
-    while fx<0 or fx>630:
-        if fx < 0:
-            fx=abs(fx)
-        elif fx > 630:
-            fx = 630 - fx
-    if fx < (paddlex+30):
-        ans = 0
-    elif fx > (paddlex+30):
-        ans = 2
-    else:
-        ans = 1
-    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
-
-def get_training_input_advanced():
-    mode = int(np.random.choice([1, 2, 3, 4, 5]))
-    if mode == 1:
-        vec = [1]*55
-    elif mode == 2:
-        vec = [0]*55
-    elif mode == 3:
-        vec = [1 if random.random() < 0.8 else 0 for _ in range(55)]
-    else:
-        vec = [1 if random.random() < 0.2 else 0 for _ in range(55)]
-
-    x = random.uniform(0, 630)
-    y = random.uniform(0, 310)
-    dy = random.choice([-200.0, 200.0])
-    mean = -200 if random.random() < 0.5 else 200
-    dx = random.gauss(mu=mean, sigma=100)
-    paddlex = random.uniform(0, 580)
-    nx = x / 630.0
-    ny = y / 310.0
-    ndx = dx / 200.0
-    ndy = dy / 200.0
-    pa = paddlex / 580.0
-    vec = vec + [nx, ny, ndx, ndy, pa]
-
-    if dx == 0:
-        fx = x
-    elif dy/dx < 0:
-        fx = x - y*(dx/dy)
-    else:
-        fx = x + (dx/dy)*(620-y)
-    while fx<0 or fx>630:
-        if fx < 0:
-            fx=abs(fx)
-        elif fx > 630:
-            fx = 630 - fx
-    if fx < paddlex+30:
-        ans = 0
-    elif fx > paddlex+30:
-        ans = 2
-    else:
-        ans = 1
-    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
-
-def update_training_visual(vec):
-    global trainingelements
-    for s in trainingelements:
-        try:
-            s.delete()
-        except:
-            pass
-    trainingelements = []
-
-    bricks_mask = vec[:55]
-    nx, ny, ndx, ndy, pa = vec[55:]
-
-    x = float(nx) * 630.0
-    y = float(ny) * 310.0
-    paddlex = float(pa) * 580.0
-
-    rows, cols = 5, 11
-    brick_w, brick_h = 60, 20
-    top_offset = 60
-    startX = (window.width - cols * brick_w) // 2
-
-    for row in range(rows):
-        for col in range(cols):
-            idx = row * cols + col
-            if bricks_mask[idx] >= 0.5:
-                rx = startX + col * brick_w
-                ry = 480 - top_offset - row * brick_h
-                r = shapes.Rectangle(rx, ry, brick_w, brick_h, color=(120, 200, 255), batch=trainingbatch)
-                trainingelements.append(r)
-
-    pr = shapes.Rectangle(int(paddlex), 0, 60, 10, color=(255, 255, 255), batch=trainingbatch)
-    trainingelements.append(pr)
-
-    br = shapes.Rectangle(int(x), int(y), 10, 10, color=(255, 0, 0), batch=trainingbatch)
-    trainingelements.append(br)
-
-def update_accuracy(history, isCorrect):
-    history.append(1 if isCorrect else 0)
-    if len(history) > 1000:
-        history.pop(0)
-    percent = 100.0 * sum(history) / len(history)
-    return f"Accuracy: {percent:.1f}%"
-
 def get_nn_input():
-    vec = [1 if Brick.alive else 0 for Brick in bricks]
     nx = ball.x/630.0
-    ny = ball.y/310.0
+    ny = ball.y/480.0
     ndx = ball.dx/200.0
     ndy = ball.dy/200.0
     pa = paddle.x/580.0
-    vec = vec + [nx, ny, ndx, ndy, pa]
+    vec = [nx, ny, ndx, ndy, pa]
     return np.array(vec, dtype=np.float32).reshape(-1, 1)
 
 def ai_move(nn, inp, dt):
@@ -264,6 +135,75 @@ def ai_move(nn, inp, dt):
         paddle.x += 300 * dt
 
     paddle.x = max(0, min(window.width - paddle.width, paddle.x))
+
+def predict_landing(x, y, dx, dy):
+    if dx == 0:
+        fx = x
+    elif dy < 0:
+        fx = x - (y-30)*(dx/dy)
+    else:
+        fx = x + (dx/dy)*(950-y)
+    while fx<0 or fx>630:
+        if fx < 0:
+            fx=abs(fx)
+        elif fx > 630:
+            fx = 1260 - fx
+    return fx
+
+
+def get_training_input_basic():
+
+    x = random.uniform(0, 630)
+    y = random.uniform(0, 480)
+    dx = random.choice([-200.0, 200.0])
+    dy = random.choice([-200.0, 200.0])
+    paddlex = random.uniform(0, 580)
+    nx = x/630.0
+    ny = y/480.0
+    ndx = dx/200.0
+    ndy = dy/200.0
+    pa = paddlex / 580.0
+    vec = [nx, ny, ndx, ndy, pa]
+
+    fx = predict_landing(x, y, dx, dy)
+    if fx < paddlex+20:
+        ans = 0
+    elif fx > paddlex+40:
+        ans = 2
+    else:
+        ans = 1
+    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
+
+def get_training_input_advanced():
+
+    x = random.uniform(0, 630)
+    y = random.uniform(0, 480)
+    dy = random.choice([-200.0, 200.0])
+    mean = -200 if random.random() < 0.5 else 200
+    dx = random.gauss(mu=mean, sigma=100)
+    paddlex = random.uniform(0, 580)
+    nx = x / 630.0
+    ny = y / 480.0
+    ndx = dx / 200.0
+    ndy = dy / 200.0
+    pa = paddlex / 580.0
+    vec = [nx, ny, ndx, ndy, pa]
+
+    fx = predict_landing(x, y, dx, dy)
+    if fx < paddlex+20:
+        ans = 0
+    elif fx > paddlex+40:
+        ans = 2
+    else:
+        ans = 1
+    return np.array(vec, dtype=np.float32).reshape(-1, 1), ans
+
+def update_accuracy(history, isCorrect):
+    history.append(1 if isCorrect else 0)
+    if len(history) > 1000:
+        history.pop(0)
+    percent = 100.0 * sum(history) / len(history)
+    return f"Accuracy: {percent:.1f}%"
 
 def update(dt):
     global elapsedTime, state, lives, gameStarted, score, stage, respawnTime
@@ -299,7 +239,8 @@ def update(dt):
         
         if not gameStarted:
             if keys[key.UP]:
-                ball.dx, ball.dy = 200, 200
+                ball.dx = random.choice([-200, 200])
+                ball.dy = 200
                 gameStarted = True
             else:
                 if keys[key.LEFT]:
@@ -375,7 +316,8 @@ def update(dt):
         
         if not gameStarted:
             if keys[key.UP]:
-                ball.dx, ball.dy = 200, 200
+                ball.dx = random.choice([-200, 200])
+                ball.dy = 200
                 gameStarted = True
             else:
                 if keys[key.LEFT]:
@@ -410,9 +352,9 @@ def update(dt):
             ball.dy = abs(ball.dy)
             if (paddle.x-ball.width/2<=ball.x+ball.width/2<=paddle.x+paddle.width/4) or \
                 (paddle.x+3*(paddle.width/4)<=ball.x+ball.width/2<=paddle.x+paddle.width+ball.width/2):
-                ball.dx *= 1.2
+                ball.dx *= 1.25
             elif paddle.x+(paddle.width/2)<ball.x+ball.width/2<paddle.x+3*(paddle.width/4):
-                ball.dx *= 0.8
+                ball.dx *= 0.75
 
         if all(not brick.alive for brick in bricks):
             stage += 1
@@ -432,8 +374,6 @@ def update(dt):
         scores_now = nn_basic.forprop(inp)
         pred = int(np.argmax(scores_now))
         accuracyLabel.text = update_accuracy(accuracyBasic, pred == ans)
-        update_training_visual(inp.flatten())
-        ai_move(nn_basic, inp, dt)
 
         dW_list, db_list = nn_basic.backprop(inp, ans)
         groupBasic.append([dW_list, db_list])
@@ -462,8 +402,6 @@ def update(dt):
         scores_now = nn_advanced.forprop(inp)
         pred = int(np.argmax(scores_now))
         accuracyLabel.text = update_accuracy(accuracyAdvanced, pred == ans)
-        update_training_visual(inp.flatten())
-        ai_move(nn_advanced, inp, dt)
 
         dW_list, db_list = nn_advanced.backprop(inp, ans)
         groupAdvanced.append([dW_list, db_list])
@@ -516,13 +454,13 @@ def update(dt):
                 ball.color = (255, 0, 0)
 
         if not gameStarted:
-            ball.dx, ball.dy = 200, 200
+            ball.dx = random.choice([-200, 200])
+            ball.dy = 200
             gameStarted = True
 
-        if ball.y<320:
-            elapsedTime += dt
-            inp = get_nn_input()
-            ai_move(nn_basic, inp, dt)
+        elapsedTime += dt
+        inp = get_nn_input()
+        ai_move(nn_basic, inp, dt)
 
         ball.x += ball.dx * dt
         ball.y += ball.dy * dt
@@ -542,7 +480,7 @@ def update(dt):
         if (paddle.y <= ball.y <= paddle.y + paddle.height) and \
            (paddle.x - ball.width <= ball.x <= paddle.x + paddle.width + ball.width):
             ball.dy = abs(ball.dy)
-
+            
         if all(not brick.alive for brick in bricks):
             stage += 1
             stageLabel.text = f"Stage: {stage}"
@@ -589,10 +527,9 @@ def update(dt):
             ball.dy = 200
             gameStarted = True
 
-        if ball.y<320:
-            elapsedTime += dt
-            inp = get_nn_input()
-            ai_move(nn_advanced, inp, dt)
+        elapsedTime += dt
+        inp = get_nn_input()
+        ai_move(nn_advanced, inp, dt)
 
         ball.x += ball.dx * dt
         ball.y += ball.dy * dt
@@ -613,9 +550,9 @@ def update(dt):
             ball.dy = abs(ball.dy)
             if (paddle.x - ball.width/2 <= ball.x + ball.width/2 <= paddle.x + paddle.width/4) or \
                (paddle.x + 3*(paddle.width/4) <= ball.x + ball.width/2 <= paddle.x + paddle.width + ball.width/2):
-                ball.dx *= 1.2
+                ball.dx *= 1.25
             elif paddle.x + (paddle.width/2) < ball.x + ball.width/2 < paddle.x + 3*(paddle.width/4):
-                ball.dx *= 0.8
+                ball.dx *= 0.75
 
         if all(not brick.alive for brick in bricks):
             stage += 1
@@ -658,7 +595,7 @@ def on_draw():
         pyglet.text.Label("HIGH SCORES", font_size=28, x=window.width//2, y=460, anchor_x="center", color=(200, 255, 255, 255)).draw()
         y = 360
         for gamestate, highscore in scoresData.items():
-            pyglet.text.Label(f"{gamestate.upper().ljust(28, '.')} {highscore}", font_name="Courier New", font_size=16, x=125, y=y).draw()
+            pyglet.text.Label(f"{gamestate.upper().ljust(28, '.')}{highscore}", font_name="Courier New", font_size=16, x=125, y=y).draw()
             y -= 70
         exitButton.draw()
         exitButtonText.draw()
@@ -681,13 +618,11 @@ def on_draw():
     elif state == "trainingbasic":
         timerLabel.draw()
         accuracyLabel.draw()
-        trainingbatch.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "trainingadvanced":
         timerLabel.draw()
         accuracyLabel.draw()
-        trainingbatch.draw()
         exitButton.draw()
         exitButtonText.draw()
     elif state == "watchbasic":
