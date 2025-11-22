@@ -9,67 +9,119 @@ def softmax(preacts):
 
 class NeuralNetwork:
     def __init__(self, layerSizes, saveFile):
-        self.layerSizes = layerSizes
-        self.saveFile = saveFile
-        self.weights = []
-        self.biases = []
+        self._layerSizes = layerSizes
+        self._saveFile = saveFile
+        self._weights = []
+        self._biases = []
 
-        if os.path.exists(self.saveFile):
+        self._recentWeights = []
+        self._recentBiases = []
+
+        if os.path.exists(self._saveFile):
             self.load()
         else:
             self.initRandomWeights()
 
-    def initRandomWeights(self):
-        self.weights = []
-        self.biases = []
-        for i in range(len(self.layerSizes) - 1):
-            numsIn = self.layerSizes[i]
-            numsOut = self.layerSizes[i+1]
-            HeInit = np.sqrt(2.0 / numsIn)
-            W = np.random.randn(numsOut, numsIn) * HeInit
-            b = np.zeros((numsOut, 1))
-            self.weights.append(W)
-            self.biases.append(b)
+    @property
+    def layerSizes(self):
+        return self._layerSizes
 
-    def forprop(self, x,):
+    @property
+    def saveFile(self):
+        return self._saveFile
+
+    @property
+    def weights(self):
+        return self._weights
+
+    @property
+    def biases(self):
+        return self._biases
+
+    def initRandomWeights(self):
+        self._weights = []
+        self._biases = []
+        for i in range(len(self._layerSizes) - 1):
+            insize = self._layerSizes[i]
+            outsize = self._layerSizes[i + 1]
+            HeInit = np.sqrt(2.0 / insize)
+            W = np.random.randn(outsize, insize) * HeInit
+            b = np.zeros((outsize, 1))
+            self._weights.append(W)
+            self._biases.append(b)
+
+    def forprop(self, x):
         a = x
-        for i in range(len(self.weights) - 1):
-            z = self.weights[i] @ a + self.biases[i]
+        for i in range(len(self._weights) - 1):
+            z = self._weights[i] @ a + self._biases[i]
             a = np.maximum(z, 0.0)
-        raw_out = self.weights[-1] @ a + self.biases[-1]
-        return softmax(raw_out)
-    
+        final = self._weights[-1] @ a + self._biases[-1]
+        return softmax(final)
+
     def backprop(self, inp, exp):
         a = inp
         activations = [inp]
-        preact = []
-        for i in range(len(self.weights) - 1):
-            z = self.weights[i] @ a + self.biases[i]
-            preact.append(z)
+        preacts = []
+        for i in range(len(self._weights) - 1):
+            z = self._weights[i] @ a + self._biases[i]
+            preacts.append(z)
             a = np.maximum(z, 0.0)
             activations.append(a)
-        z = self.weights[-1] @ a + self.biases[-1]
-        preact.append(z)
+
+        z = self._weights[-1] @ a + self._biases[-1]
+        preacts.append(z)
         exp_vec = np.zeros((3, 1), dtype=np.float32)
         exp_vec[int(exp)] = 1.0
         p = softmax(z)
         delta = p - exp_vec
+        dW = [delta @ activations[-1].T]
+        db = [delta]
 
-        deltaw = [delta @ activations[-1].T]
-        deltab = [delta]
-        for i in range(len(self.weights) - 2, -1, -1):
-            delta = self.weights[i + 1].T @ delta
-            delta = delta * (preact[i] > 0).astype(np.float32)
-            deltaw.insert(0, delta @ activations[i].T)
-            deltab.insert(0, delta)
-        return deltaw, deltab
+        for i in range(len(self._weights) - 2, -1, -1):
+            delta = self._weights[i + 1].T @ delta
+            delta = delta * (preacts[i] > 0).astype(np.float32)
+            dW.insert(0, delta @ activations[i].T)
+            db.insert(0, delta)
+        return dW, db
+
+    def record_grads(self, dW, db):
+        if len(self._recentWeights) == 10:
+            self._recentWeights = []
+            self._recentBiases = []
+        self._recentWeights.append(dW)
+        self._recentBiases.append(db)
+
+    def apply_grads(self, lr):
+        if len(self._recentWeights) != 10:
+            return
+
+        sum_dW = [np.zeros_like(w) for w in self._weights]
+        sum_db = [np.zeros_like(b) for b in self._biases]
+
+        for dW in self._recentWeights:
+            for i in range(len(sum_dW)):
+                sum_dW[i] += dW[i]
+
+        for db in self._recentBiases:
+            for i in range(len(sum_db)):
+                sum_db[i] += db[i]
+
+        avg_dW = [dw / 10 for dw in sum_dW]
+        avg_db = [db / 10 for db in sum_db]
+
+        for i in range(len(self._weights)):
+            self._weights[i] -= lr * avg_dW[i]
+            self._biases[i] -= lr * avg_db[i]
 
     def save(self):
-        with open(self.saveFile, "w") as f:
-            json.dump({"weights": [w.tolist() for w in self.weights], "biases": [b.tolist() for b in self.biases]}, f)
+        with open(self._saveFile, "w") as f:
+            json.dump({
+                "weights": [w.tolist() for w in self._weights],
+                "biases": [b.tolist() for b in self._biases]
+            }, f)
 
     def load(self):
-        with open(self.saveFile, "r") as f:
+        with open(self._saveFile, "r") as f:
             data = json.load(f)
-            self.weights = [np.array(w) for w in data["weights"]]
-            self.biases = [np.array(b) for b in data["biases"]]
+            self._weights = [np.array(w) for w in data["weights"]]
+            self._biases = [np.array(b) for b in data["biases"]]
