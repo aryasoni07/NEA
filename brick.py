@@ -1,3 +1,5 @@
+#Brick
+
 from pyglet import shapes
 
 class Brick:
@@ -23,7 +25,7 @@ class Brick:
     @property
     def alive(self):
         return self._alive
-
+#Deletes itself when set to be not alive
     @alive.setter
     def alive(self, value):
         self._alive = value
@@ -34,10 +36,11 @@ class Brick:
     def checkCollision(self, ball):
         if not self._alive:
             return False
-
+#Collision detection calculated from the ball's next coordinates, to avoid overlapping.
         nextx = ball.x + ball.width/2 + ball._dx/60
         nexty = ball.y + ball.width/2 + ball._dy/60
 
+#The axis-values of the sides of the ball and brick
         brickLeft = self.x
         brickRight = self.x + self.width
         brickTop = self.y
@@ -47,22 +50,23 @@ class Brick:
         ballTop = nexty
         ballBottom = nexty + ball.height
 
-        if (ballRight > brickLeft and ballLeft < brickRight and
+#Exiting the method if there is not the desired overlap
+        if not (ballRight > brickLeft and ballLeft < brickRight and
             ballBottom > brickTop and ballTop < brickBottom):
-
+            return False
+        else:
             overlapLeft = ballRight - brickLeft
             overlapRight = brickRight - ballLeft
             overlapTop = ballBottom - brickTop
             overlapBottom = brickBottom - ballTop
 
+#Determining in which dimension the collision occured
             overlapx = min(overlapLeft, overlapRight)
             overlapy = min(overlapTop, overlapBottom)
-
+#Reflecting the ball accordingly
             if overlapx < overlapy:
                 ball._dx *= -1
             else:
                 ball._dy *= -1
-
             self.alive = False
             return True
-        return False
